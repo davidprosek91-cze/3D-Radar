@@ -905,11 +905,11 @@ function emitBeams() {
     right.normalize();
     const up = new THREE.Vector3().crossVectors(right, forward).normalize();
 
-    // === SCANNING BEAMS (64x64) ===
-    const numFan = 64;
-    const fanSpread = 0.016;
-    const numSide = 64;
-    const sideSpread = 0.016;
+    // === SCANNING BEAMS ===
+    const numFan = 6;
+    const fanSpread = 0.20;
+    const numSide = 6;
+    const sideSpread = 0.20;
 
     for (let j = 0; j < numFan; j++) {
         const elAngle = (j - (numFan - 1) / 2) * fanSpread;
