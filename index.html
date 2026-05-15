@@ -244,7 +244,7 @@ controls.update();
 
 scene.add(new THREE.AmbientLight(0x112244, 0.4));
 
-const grid = new THREE.GridHelper(40, 64, 0x00ff88, 0x002244);
+const grid = new THREE.GridHelper(40, 384, 0x00ff88, 0x002244);
 grid.position.y = -0.5;
 scene.add(grid);
 
@@ -256,35 +256,15 @@ ground.rotation.x = -Math.PI / 2;
 ground.position.y = -0.5;
 scene.add(ground);
 
-// ===== TARGET OBJECTS =====
+// ===== TARGET OBJECTS (pouzze pro refrakci, bez vizualizace) =====
 const targets = [];
 
 function createTarget(geometry, color, position, scale, refrStrength, refrRange, hitRadius, floatAmp, geoType, roughness, class_name) {
-    const wireframe = new THREE.LineSegments(
-        new THREE.EdgesGeometry(geometry),
-        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.12 })
-    );
-    wireframe.position.copy(position);
-    wireframe.scale.set(scale, scale, scale);
-
-    const fillMesh = new THREE.Mesh(
-        geometry.clone(),
-        new THREE.MeshPhysicalMaterial({
-            color, transparent: true, opacity: 0.06,
-            roughness: 0.5, metalness: 0.05,
-            side: THREE.DoubleSide, depthWrite: false,
-        })
-    );
-    fillMesh.position.copy(position);
-    fillMesh.scale.set(scale, scale, scale);
-
-    scene.add(wireframe);
-    scene.add(fillMesh);
-
+    const quat = new THREE.Quaternion();
     const getNormal = function (point) {
         const local = new THREE.Vector3().copy(point).sub(this.currentPos);
         if (geoType === 'box') {
-            const invQ = this.wireframe.quaternion.clone().invert();
+            const invQ = this.quaternion.clone().invert();
             const objLocal = local.clone().applyQuaternion(invQ);
             const half = this.scale / 2;
             const dx = Math.abs(objLocal.x) - half;
@@ -294,7 +274,7 @@ function createTarget(geometry, color, position, scale, refrStrength, refrRange,
             if (dx >= dy && dx >= dz) normal = new THREE.Vector3(Math.sign(objLocal.x), 0, 0);
             else if (dy >= dx && dy >= dz) normal = new THREE.Vector3(0, Math.sign(objLocal.y), 0);
             else normal = new THREE.Vector3(0, 0, Math.sign(objLocal.z));
-            return normal.applyQuaternion(this.wireframe.quaternion).normalize();
+            return normal.applyQuaternion(this.quaternion).normalize();
         }
         return local.clone().normalize();
     };
@@ -306,7 +286,7 @@ function createTarget(geometry, color, position, scale, refrStrength, refrRange,
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (dist < 0.001) return null;
 
-        const invQ = this.wireframe.quaternion.clone().invert();
+        const invQ = this.quaternion.clone().invert();
         const lx = dx * (1 - 2 * (invQ.y * invQ.y + invQ.z * invQ.z))
                  + dy * 2 * (invQ.x * invQ.y - invQ.z * invQ.w)
                  + dz * 2 * (invQ.x * invQ.z + invQ.y * invQ.w);
@@ -329,7 +309,7 @@ function createTarget(geometry, color, position, scale, refrStrength, refrRange,
                 else if (py >= px && py >= pz) fly = Math.sign(ly) * h;
                 else flz = Math.sign(lz) * h;
             }
-            const q = this.wireframe.quaternion;
+            const q = this.quaternion;
             const wsx = flx * (1 - 2 * (q.y * q.y + q.z * q.z)) + fly * 2 * (q.x * q.y - q.z * q.w) + flz * 2 * (q.x * q.z + q.y * q.w) + this.currentPos.x;
             const wsy = flx * 2 * (q.x * q.y + q.z * q.w) + fly * (1 - 2 * (q.x * q.x + q.z * q.z)) + flz * 2 * (q.y * q.z - q.x * q.w) + this.currentPos.y;
             const wsz = flx * 2 * (q.x * q.z - q.y * q.w) + fly * 2 * (q.y * q.z + q.x * q.w) + flz * (1 - 2 * (q.x * q.x + q.y * q.y)) + this.currentPos.z;
@@ -346,13 +326,11 @@ function createTarget(geometry, color, position, scale, refrStrength, refrRange,
     return {
         position: position.clone(),
         currentPos: position.clone(),
+        quaternion: quat.clone(),
         color: new THREE.Color(color),
         refractionStrength: refrStrength,
         refractionRange: refrRange,
         hitRadius: hitRadius,
-        wireframe,
-        fillMesh,
-        wireframeMat: wireframe.material,
         floatAmp,
         getNormal,
         attractToSurface,
@@ -462,7 +440,7 @@ const modelLabels = [];
 const MAX_MODEL = 8000;
 const MAX_SEGMENTS = 8000;
 const MAX_TRIS = 4000;
-const CONNECT_RADIUS = 0.60;
+const CONNECT_RADIUS = 0.10;
 const CONNECT_INTERVAL = 15;
 const SEGMENT_LIFE = 600;
 
@@ -787,8 +765,8 @@ function traceBeam(origin, direction, maxBounces) {
     const hits = [];
     let pos = origin.clone();
     let dir = direction.clone().normalize();
-    let stepSize = 0.15;
-    let maxSteps = 80;
+    let stepSize = 0.20;
+    let maxSteps = 25;
 
     const vGrad = new THREE.Vector3();
     const vPerp = new THREE.Vector3();
@@ -916,11 +894,11 @@ function emitBeams() {
     right.normalize();
     const up = new THREE.Vector3().crossVectors(right, forward).normalize();
 
-    // === SCANNING BEAMS (100% prostoru) ===
-    const numFan = 5;
-    const fanSpread = 0.26;
-    const numSide = 5;
-    const sideSpread = 0.26;
+    // === SCANNING BEAMS (64x64) ===
+    const numFan = 64;
+    const fanSpread = 0.016;
+    const numSide = 64;
+    const sideSpread = 0.016;
 
     for (let j = 0; j < numFan; j++) {
         const elAngle = (j - (numFan - 1) / 2) * fanSpread;
@@ -1286,40 +1264,20 @@ function animate() {
         updateLabels(clusters);
     }
 
-    // Animate targets (update currentPos for correct normals)
+    // Animate targets (update currentPos and quaternion for correct normals)
     for (let i = 0; i < targets.length; i++) {
         const obj = targets[i];
         const orig = originalPositions[i];
         const floatY = orig.y + Math.sin(time * 0.3 + i * 1.7) * obj.floatAmp;
 
-        obj.wireframe.position.y = floatY;
-        obj.wireframe.rotation.x = Math.sin(time * 0.12 + i * 2.3) * 0.05;
-        obj.wireframe.rotation.y += delta * 0.1;
-        obj.wireframe.rotation.z = Math.cos(time * 0.1 + i * 1.1) * 0.03;
-
-        obj.fillMesh.position.copy(obj.wireframe.position);
-        obj.fillMesh.rotation.copy(obj.wireframe.rotation);
-        obj.fillMesh.scale.copy(obj.wireframe.scale);
-
-        obj.currentPos.set(
-            obj.wireframe.position.x,
-            obj.wireframe.position.y,
-            obj.wireframe.position.z
+        const euler = new THREE.Euler(
+            Math.sin(time * 0.12 + i * 2.3) * 0.05,
+            obj.position.y + delta * 0.1,
+            Math.cos(time * 0.1 + i * 1.1) * 0.03,
+            'YXZ'
         );
-
-        const hitAge = (Date.now() - obj.lastHitTime) / 1000;
-        const baseOp = 0.12;
-        if (hitAge < 0.8) {
-            const glow = 1 - hitAge / 0.8;
-            obj.wireframeMat.opacity = baseOp + glow * 0.55;
-            obj.fillMesh.material.opacity = 0.06 + glow * 0.15;
-            const glC = getCatColor(parseClass(obj.class_name || 'ostatni/neznama').cat);
-            obj.wireframeMat.color.copy(glC).multiplyScalar(0.5 + glow * 0.5);
-        } else {
-            obj.wireframeMat.opacity = baseOp;
-            obj.fillMesh.material.opacity = 0.06;
-            obj.wireframeMat.color.set(obj.color);
-        }
+        obj.quaternion.setFromEuler(euler);
+        obj.currentPos.set(orig.x, floatY, orig.z);
     }
 
     // Antenna glow pulse
