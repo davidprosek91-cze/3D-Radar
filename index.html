@@ -440,9 +440,9 @@ const modelLabels = [];
 const MAX_MODEL = 20000;
 const MAX_SEGMENTS = 20000;
 const MAX_TRIS = 10000;
-const CONNECT_RADIUS = 0.10;
+const CONNECT_RADIUS = 0.30;
 const CONNECT_INTERVAL = 10;
-const SEGMENT_LIFE = 600;
+const SEGMENT_LIFE = 1200;
 
 const modelGroup = new THREE.Group();
 scene.add(modelGroup);
@@ -667,7 +667,7 @@ function rebuildMesh() {
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
     const mat = new THREE.LineBasicMaterial({
-        vertexColors: true, transparent: true, opacity: 0.9,
+        vertexColors: true, transparent: true, opacity: 1.0,
         blending: THREE.AdditiveBlending, depthWrite: false
     });
     modelMesh = new THREE.LineSegments(geo, mat);
