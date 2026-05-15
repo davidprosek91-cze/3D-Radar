@@ -791,6 +791,9 @@ function traceBeam(origin, direction, maxBounces) {
                     vGrad.x += attract.direction.x * inf;
                     vGrad.y += attract.direction.y * inf;
                     vGrad.z += attract.direction.z * inf;
+                    vGrad.x += attract.direction.x * inf * 0.3;
+                    vGrad.y += attract.direction.y * inf * 0.3;
+                    vGrad.z += attract.direction.z * inf * 0.3;
                     const flow = new THREE.Vector3().crossVectors(
                         new THREE.Vector3(attract.direction.x, attract.direction.y, attract.direction.z),
                         dir
@@ -798,7 +801,7 @@ function traceBeam(origin, direction, maxBounces) {
                     const flowLen = flow.length();
                     if (flowLen > 0.001) {
                         flow.divideScalar(flowLen);
-                        const flowStr = inf * 0.4 * (1 - attract.distance / obj.refractionRange);
+                        const flowStr = inf * 1.5;
                         vGrad.x += flow.x * flowStr;
                         vGrad.y += flow.y * flowStr;
                         vGrad.z += flow.z * flowStr;
