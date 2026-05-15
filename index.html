@@ -453,6 +453,7 @@ const MAX_BEAMS = 2000;
 const MAX_HITS = 2000;
 const BEAM_LIFE = 10;
 const HIT_LIFE = 20;
+const maxRange2 = 400;
 
 const modelPoints = [];
 const modelSegments = [];
@@ -929,10 +930,8 @@ function emitBeams() {
             const direction = baseDir.clone().applyAxisAngle(up, azAngle);
             const result = traceBeam(emitterPos, direction);
             if (result.points.length > 1) beams.push({ points: result.points, age: 0 });
-            if (sdrSimulate) {
-                for (const hit of result.hits) {
-                    hitPoints.push({ position: hit.position, age: 0, color: hit.object.color.clone(), power: hit.power, bounce: hit.bounce });
-                }
+            for (const hit of result.hits) {
+                hitPoints.push({ position: hit.position, age: 0, color: hit.object.color.clone(), power: hit.power, bounce: hit.bounce, class_name: hit.class_name });
             }
         }
     }
@@ -943,8 +942,10 @@ function emitBeams() {
 }
 
 // ===== BEAM VISUALIZATION =====
+const beamPointPool = [];
 function updateBeamVisuals() {
     for (const line of beamPool) line.visible = false;
+    for (const p of beamPointPool) p.visible = false;
 
     const active = [];
     for (let i = beams.length - 1; i >= 0; i--) {
@@ -955,7 +956,7 @@ function updateBeamVisuals() {
         const beam = active[i];
         const age = beam.age / BEAM_LIFE;
         let opacity = age < 0.3 ? 1 : 1 - ((age - 0.3) / 0.7);
-        opacity *= 0.85;
+        opacity *= 0.9;
         if (opacity < 0.02) continue;
 
         let line;
@@ -993,15 +994,42 @@ function updateBeamVisuals() {
             posAttr.needsUpdate = true;
         }
         line.material.opacity = opacity;
-        // Beam color by height for depth perception
         const avgY = pts.reduce((s, p) => s + p.y, 0) / pts.length;
         const hue = 0.55 - avgY * 0.05;
         line.material.color.setHSL(hue, 0.9, 0.5 + (1 - age) * 0.3);
         line.visible = true;
+
+        // Glow points along beam
+        let pointsMesh;
+        if (i < beamPointPool.length) {
+            pointsMesh = beamPointPool[i];
+        } else {
+            const pGeo = new THREE.BufferGeometry();
+            const pMat = new THREE.PointsMaterial({
+                size: 0.12, transparent: true, blending: THREE.AdditiveBlending,
+                depthWrite: false, sizeAttenuation: true
+            });
+            pointsMesh = new THREE.Points(pGeo, pMat);
+            scene.add(pointsMesh);
+            beamPointPool.push(pointsMesh);
+        }
+        const pCount = Math.min(n, 40);
+        const pPos = new Float32Array(pCount * 3);
+        const step = Math.max(1, Math.floor(n / pCount));
+        for (let j = 0, idx = 0; j < n && idx < pCount; j += step, idx++) {
+            pPos[idx * 3] = pts[j].x; pPos[idx * 3 + 1] = pts[j].y; pPos[idx * 3 + 2] = pts[j].z;
+        }
+        pointsMesh.geometry.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+        pointsMesh.material.opacity = opacity * 0.7;
+        pointsMesh.material.color.setHSL(hue, 0.9, 0.7);
+        pointsMesh.visible = true;
     }
 
     for (let i = active.length; i < beamPool.length; i++) {
         beamPool[i].visible = false;
+    }
+    for (let i = active.length; i < beamPointPool.length; i++) {
+        beamPointPool[i].visible = false;
     }
 }
 
