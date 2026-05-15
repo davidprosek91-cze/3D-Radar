@@ -765,8 +765,8 @@ function traceBeam(origin, direction, maxBounces) {
     const hits = [];
     let pos = origin.clone();
     let dir = direction.clone().normalize();
-    let stepSize = 0.15;
-    let maxSteps = 80;
+    let stepSize = 0.20;
+    let maxSteps = 25;
 
     const vGrad = new THREE.Vector3();
     const vPerp = new THREE.Vector3();
@@ -906,11 +906,11 @@ function emitBeams() {
     right.normalize();
     const up = new THREE.Vector3().crossVectors(right, forward).normalize();
 
-    // === SCANNING BEAMS ===
-    const numFan = 5;
-    const fanSpread = 0.26;
-    const numSide = 5;
-    const sideSpread = 0.26;
+    // === SCANNING BEAMS (64x64) ===
+    const numFan = 64;
+    const fanSpread = 0.016;
+    const numSide = 64;
+    const sideSpread = 0.016;
 
     for (let j = 0; j < numFan; j++) {
         const elAngle = (j - (numFan - 1) / 2) * fanSpread;
