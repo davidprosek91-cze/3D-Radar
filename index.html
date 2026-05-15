@@ -791,6 +791,18 @@ function traceBeam(origin, direction, maxBounces) {
                     vGrad.x += attract.direction.x * inf;
                     vGrad.y += attract.direction.y * inf;
                     vGrad.z += attract.direction.z * inf;
+                    const flow = new THREE.Vector3().crossVectors(
+                        new THREE.Vector3(attract.direction.x, attract.direction.y, attract.direction.z),
+                        dir
+                    );
+                    const flowLen = flow.length();
+                    if (flowLen > 0.001) {
+                        flow.divideScalar(flowLen);
+                        const flowStr = inf * 0.4 * (1 - attract.distance / obj.refractionRange);
+                        vGrad.x += flow.x * flowStr;
+                        vGrad.y += flow.y * flowStr;
+                        vGrad.z += flow.z * flowStr;
+                    }
                     if (attract.distance < nearestDist) { nearestDist = attract.distance; nearestObj = obj; }
                 }
             }
