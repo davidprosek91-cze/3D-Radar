@@ -23,7 +23,7 @@ CONFIG = {
     'sample_rate_enum': 1,
     'gain': 'auto',
     'fft_size': 1024,
-    'threshold': -25,
+    'threshold': 25,
     'port': 8765,
 }
 
