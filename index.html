@@ -1,0 +1,1342 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Radar - Refractive Beam Tracing</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{overflow:hidden;background:#070714;font-family:'Courier New',monospace}
+canvas{display:block}
+#ui{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
+#topbar{position:absolute;top:10px;left:50%;transform:translateX(-50%);display:flex;gap:20px;align-items:center;background:rgba(7,7,20,0.88);padding:6px 24px;border:1px solid rgba(0,255,136,0.12);border-radius:5px;pointer-events:auto;user-select:none}
+#topbar .title{color:#00ff88;font-size:14px;font-weight:bold;letter-spacing:2px}
+#topbar .title span{color:#4488aa}
+#topbar .stat{color:#4488aa;font-size:10px}
+#topbar .stat .val{color:#00ff88}
+#panel{position:absolute;top:52px;left:10px;width:190px;pointer-events:auto;user-select:none}
+#panel .s{background:rgba(7,7,20,0.85);border:1px solid rgba(0,255,136,0.08);border-radius:3px;padding:8px 10px;margin-bottom:6px}
+#panel .st{color:#4488aa;font-size:9px;letter-spacing:1.5px;margin-bottom:4px;text-transform:uppercase}
+#panel .r{display:flex;justify-content:space-between;font-size:10px;padding:1px 0}
+#panel .r .l{color:#557799}
+#panel .r .v{color:#88ddbb}
+#sdrStatus{color:#ff4444}
+#sdrStatus.on{color:#00ff88}
+#objList{max-height:80px;overflow-y:auto;pointer-events:auto}
+#objList::-webkit-scrollbar{width:3px}
+#objList::-webkit-scrollbar-thumb{background:rgba(0,255,136,0.2);border-radius:2px}
+.obj-e{display:flex;align-items:center;padding:2px 0;font-size:9px;border-bottom:1px solid rgba(0,255,136,0.04)}
+.obj-dot{width:5px;height:5px;border-radius:50%;display:inline-block;margin-right:5px;flex-shrink:0}
+.obj-n{color:#88ddbb;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.obj-d{color:#557799;width:32px;text-align:right}
+.ppi-box{position:absolute;bottom:14px;background:rgba(7,7,20,0.9);border:1px solid rgba(0,255,136,0.12);border-radius:4px;overflow:hidden;pointer-events:auto}
+.ppi-box .ppi-label{position:absolute;top:2px;left:6px;font-size:8px;color:#335566;letter-spacing:1px;pointer-events:none}
+.ppi-box canvas{display:block}
+#ppiH{right:14px;width:160px;height:160px}
+#ppiV{right:186px;width:140px;height:160px}
+#statusBar{position:absolute;bottom:4px;left:50%;transform:translateX(-50%);font-size:9px;color:#334455;background:rgba(7,7,20,0.5);padding:2px 14px;border-radius:2px;user-select:none}
+.scanlines{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,255,136,0.01) 2px,rgba(0,255,136,0.01) 4px)}
+.scan-btn{background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.18);border-radius:3px;color:#00ff88;font-family:'Courier New',monospace;font-size:10px;padding:3px 10px;cursor:pointer;pointer-events:auto;letter-spacing:1.5px;transition:all 0.15s}
+.scan-btn:hover{background:rgba(0,255,136,0.12);border-color:rgba(0,255,136,0.35)}
+.scan-btn.stopped{color:#ff4444;border-color:rgba(255,68,68,0.25);background:rgba(255,68,68,0.06)}
+.scan-btn.stopped:hover{background:rgba(255,68,68,0.12)}
+</style>
+</head>
+<body>
+<div class="scanlines"></div>
+<div id="ui">
+<div id="topbar"><div class="title"><span>3D</span> RADAR</div><div class="stat">AZ <span class="val" id="azVal">000</span>°</div><div class="stat">EL <span class="val" id="elVal">00.0</span>°</div><div class="stat">HITY <span class="val" id="detectVal">0</span></div><div class="stat">SIT <span class="val" id="modelVal">0</span></div><div class="stat">NF <span class="val" id="nfVal">—</span></div><div class="stat">SDR <span class="val" id="sdrStatus">OFF</span></div><div class="stat" id="sdrMode" style="color:#4488aa;font-size:10px"><span class="val" id="sdrVal">offline</span></div><button id="scanBtn" class="scan-btn">■ STOP</button></div>
+<div id="panel">
+<div class="s"><div class="st">Scan</div><div class="r"><span class="l">Frekvence</span><span class="v" id="freqVal">—</span></div><div class="r"><span class="l">Signal</span><span class="v" id="signalVal">— dB</span></div><div class="r"><span class="l">Prah</span><span class="v" id="threshVal">—</span></div></div>
+<div class="s"><div class="st">Detekce</div><div id="objList"></div><div style="font-size:9px;color:#334455;text-align:center;padding-top:3px" id="objCount">zadne</div></div>
+</div>
+<div id="ppiH" class="ppi-box"><div class="ppi-label">AZIMUTH</div><canvas id="ppiHCanvas"></canvas></div>
+<div id="ppiV" class="ppi-box"><div class="ppi-label">RANGE-HEIGHT</div><canvas id="ppiVCanvas"></canvas></div>
+<div id="statusBar">TAZENI:otaceni KOLIBKO:zoom</div>
+</div>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+// ===== CSS2D LABEL RENDERER =====
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(window.innerWidth, window.innerHeight);
+labelRenderer.domElement.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none';
+document.body.appendChild(labelRenderer.domElement);
+
+// ===== SDR CLIENT =====
+let sdrConnected = false, sdrSimulate = true, sdrLastDetect = 0, sdrConnecting = false;
+
+class SDRClient {
+    constructor() {
+        const host = location.hostname === '' || location.hostname === '127.0.0.1' || location.hostname === 'localhost'
+            ? 'localhost' : location.hostname;
+        this.url = `ws://${host}:8765`;
+        this.ws = null;
+        this.connected = false;
+        this.simulate = true;
+        this.detections = [];
+        this.reconnectAttempts = 0;
+        this.maxReconnect = 10;
+    }
+
+    connect() {
+        sdrConnecting = true;
+        this._updateStatus(false, true);
+        try { this.ws = new WebSocket(this.url); }
+        catch (e) { sdrConnecting = false; this._updateStatus(false, true); return; }
+
+        this.ws.onopen = () => {
+            this.connected = true;
+            this.reconnectAttempts = 0;
+            sdrConnecting = false;
+            this.ws.send(JSON.stringify({ type: 'get_status' }));
+            this._updateStatus(true, true);
+        };
+
+        this.ws.onclose = () => {
+            this.connected = false;
+            this.simulate = true;
+            sdrConnecting = false;
+            this._updateStatus(false, true);
+            this._reconnect();
+        };
+
+        this.ws.onerror = () => {
+            this.connected = false;
+            this.simulate = true;
+            sdrConnecting = false;
+            this._updateStatus(false, true);
+        };
+
+        this.ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'status') {
+                    this.simulate = data.simulate || false;
+                    this._updateStatus(true, data.simulate);
+                    if (data.noise_floor !== undefined) {
+                        document.getElementById('nfVal').textContent = data.noise_floor.toFixed(1);
+                    }
+                    if (data.config) {
+                        document.getElementById('freqVal').textContent =
+                            data.config.freq ? (data.config.freq / 1e6).toFixed(1) + ' MHz' : '—';
+                    }
+                } else if (data.type === 'scan_result') {
+                    sdrLastDetect = Date.now();
+                    if (data.noise_floor !== undefined) {
+                        document.getElementById('nfVal').textContent = data.noise_floor.toFixed(1);
+                        document.getElementById('threshVal').textContent = (data.noise_floor + 5).toFixed(1) + ' dB';
+                    }
+                    if (data.detections) {
+                        for (const h of data.detections) {
+                            this.detections.push({
+                                position: new THREE.Vector3(h.x, h.y, h.z),
+                                power: h.power, range: h.range, age: 0,
+                                class_name: h.class_name || 'ostatni/neznama',
+                                confidence: h.confidence || 0,
+                            });
+                        }
+                    }
+                    if (data.power !== undefined) {
+                        document.getElementById('signalVal').textContent = data.power.toFixed(1) + ' dB';
+                    }
+                }
+            } catch (_) { }
+        };
+    }
+
+    _updateStatus(connected, simulate) {
+        sdrConnected = connected;
+        sdrSimulate = simulate;
+        const el = document.getElementById('sdrStatus');
+        const elVal = document.getElementById('sdrVal');
+        if (sdrConnecting) {
+            el.textContent = 'CON';
+            el.className = 'val';
+            if (elVal) elVal.textContent = 'con...';
+        } else if (connected) {
+            el.textContent = simulate ? 'SIM' : 'ON';
+            el.className = 'val on';
+            if (elVal) elVal.textContent = simulate ? 'SIMULACE' : 'LIVE';
+        } else {
+            el.textContent = 'OFF';
+            el.className = 'val';
+            if (elVal) elVal.textContent = 'offline';
+        }
+    }
+
+    sendScan(azimuth, elevation) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ type: 'scan', azimuth, elevation }));
+        }
+    }
+
+    _reconnect() {
+        if (this.reconnectAttempts >= this.maxReconnect) return;
+        this.reconnectAttempts++;
+        setTimeout(() => {
+            if (!this.connected) this.connect();
+        }, Math.min(5000, 1000 * this.reconnectAttempts));
+    }
+
+    getDetections() {
+        const dets = [...this.detections];
+        this.detections = [];
+        return dets;
+    }
+}
+
+const sdrClient = new SDRClient();
+setTimeout(() => sdrClient.connect(), 1000);
+
+// ===== CATEGORY COLORS (hash-based, deterministic) =====
+const CAT_COLORS = {};
+function getCatColor(cat) {
+    if (CAT_COLORS[cat]) return CAT_COLORS[cat];
+    let h = 0;
+    for (let i = 0; i < cat.length; i++) h = cat.charCodeAt(i) + ((h << 5) - h);
+    const hue = ((h % 360 + 360) % 360) / 360;
+    const c = new THREE.Color().setHSL(hue, 0.75, 0.45);
+    CAT_COLORS[cat] = c;
+    return c;
+}
+function parseClass(name) {
+    const i = name.indexOf('/');
+    if (i > 0) return { cat: name.slice(0, i), obj: name.slice(i + 1), full: name };
+    return { cat: 'ostatni', obj: name, full: name };
+}
+
+// ===== THREE.JS SETUP =====
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x070714);
+scene.fog = new THREE.FogExp2(0x070714, 0.008);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(14, 9, 18);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+document.body.prepend(renderer.domElement);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new UnrealBloomPass(
+    new THREE.Vector2(window.innerWidth, window.innerHeight), 0.1, 0.05, 0.02
+));
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.maxPolarAngle = Math.PI / 2.1;
+controls.minDistance = 3;
+controls.maxDistance = 40;
+controls.update();
+
+scene.add(new THREE.AmbientLight(0x112244, 0.4));
+
+const grid = new THREE.GridHelper(40, 64, 0x00ff88, 0x002244);
+grid.position.y = -0.5;
+scene.add(grid);
+
+const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(40, 40),
+    new THREE.MeshStandardMaterial({ color: 0x060614, transparent: true, opacity: 0.6, roughness: 0.9 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.5;
+scene.add(ground);
+
+// ===== TARGET OBJECTS =====
+const targets = [];
+
+function createTarget(geometry, color, position, scale, refrStrength, refrRange, hitRadius, floatAmp, geoType, roughness, class_name) {
+    const wireframe = new THREE.LineSegments(
+        new THREE.EdgesGeometry(geometry),
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.12 })
+    );
+    wireframe.position.copy(position);
+    wireframe.scale.set(scale, scale, scale);
+
+    const fillMesh = new THREE.Mesh(
+        geometry.clone(),
+        new THREE.MeshPhysicalMaterial({
+            color, transparent: true, opacity: 0.06,
+            roughness: 0.5, metalness: 0.05,
+            side: THREE.DoubleSide, depthWrite: false,
+        })
+    );
+    fillMesh.position.copy(position);
+    fillMesh.scale.set(scale, scale, scale);
+
+    scene.add(wireframe);
+    scene.add(fillMesh);
+
+    const getNormal = function (point) {
+        const local = new THREE.Vector3().copy(point).sub(this.currentPos);
+        if (geoType === 'box') {
+            const invQ = this.wireframe.quaternion.clone().invert();
+            const objLocal = local.clone().applyQuaternion(invQ);
+            const half = this.scale / 2;
+            const dx = Math.abs(objLocal.x) - half;
+            const dy = Math.abs(objLocal.y) - half;
+            const dz = Math.abs(objLocal.z) - half;
+            let normal;
+            if (dx >= dy && dx >= dz) normal = new THREE.Vector3(Math.sign(objLocal.x), 0, 0);
+            else if (dy >= dx && dy >= dz) normal = new THREE.Vector3(0, Math.sign(objLocal.y), 0);
+            else normal = new THREE.Vector3(0, 0, Math.sign(objLocal.z));
+            return normal.applyQuaternion(this.wireframe.quaternion).normalize();
+        }
+        return local.clone().normalize();
+    };
+
+    const attractToSurface = function (pos) {
+        const dx = pos.x - this.currentPos.x;
+        const dy = pos.y - this.currentPos.y;
+        const dz = pos.z - this.currentPos.z;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist < 0.001) return null;
+
+        const invQ = this.wireframe.quaternion.clone().invert();
+        const lx = dx * (1 - 2 * (invQ.y * invQ.y + invQ.z * invQ.z))
+                 + dy * 2 * (invQ.x * invQ.y - invQ.z * invQ.w)
+                 + dz * 2 * (invQ.x * invQ.z + invQ.y * invQ.w);
+        const ly = dx * 2 * (invQ.x * invQ.y + invQ.z * invQ.w)
+                 + dy * (1 - 2 * (invQ.x * invQ.x + invQ.z * invQ.z))
+                 + dz * 2 * (invQ.y * invQ.z - invQ.x * invQ.w);
+        const lz = dx * 2 * (invQ.x * invQ.z - invQ.y * invQ.w)
+                 + dy * 2 * (invQ.y * invQ.z + invQ.x * invQ.w)
+                 + dz * (1 - 2 * (invQ.x * invQ.x + invQ.y * invQ.y));
+
+        if (geoType === 'box') {
+            const h = this.scale / 2;
+            const clx = Math.max(-h, Math.min(h, lx));
+            const cly = Math.max(-h, Math.min(h, ly));
+            const clz = Math.max(-h, Math.min(h, lz));
+            const px = Math.abs(lx) - h, py = Math.abs(ly) - h, pz = Math.abs(lz) - h;
+            let flx = clx, fly = cly, flz = clz;
+            if (px < 0 && py < 0 && pz < 0) {
+                if (px >= py && px >= pz) flx = Math.sign(lx) * h;
+                else if (py >= px && py >= pz) fly = Math.sign(ly) * h;
+                else flz = Math.sign(lz) * h;
+            }
+            const q = this.wireframe.quaternion;
+            const wsx = flx * (1 - 2 * (q.y * q.y + q.z * q.z)) + fly * 2 * (q.x * q.y - q.z * q.w) + flz * 2 * (q.x * q.z + q.y * q.w) + this.currentPos.x;
+            const wsy = flx * 2 * (q.x * q.y + q.z * q.w) + fly * (1 - 2 * (q.x * q.x + q.z * q.z)) + flz * 2 * (q.y * q.z - q.x * q.w) + this.currentPos.y;
+            const wsz = flx * 2 * (q.x * q.z - q.y * q.w) + fly * 2 * (q.y * q.z + q.x * q.w) + flz * (1 - 2 * (q.x * q.x + q.y * q.y)) + this.currentPos.z;
+            const sdx = wsx - pos.x, sdy = wsy - pos.y, sdz = wsz - pos.z;
+            const sd = Math.sqrt(sdx * sdx + sdy * sdy + sdz * sdz);
+            return { direction: { x: sdx / sd, y: sdy / sd, z: sdz / sd }, distance: sd };
+        }
+
+        const d = 1 / dist;
+        const surfaceDist = Math.max(0, dist - this.hitRadius);
+        return { direction: { x: -dx * d, y: -dy * d, z: -dz * d }, distance: surfaceDist };
+    };
+
+    return {
+        position: position.clone(),
+        currentPos: position.clone(),
+        color: new THREE.Color(color),
+        refractionStrength: refrStrength,
+        refractionRange: refrRange,
+        hitRadius: hitRadius,
+        wireframe,
+        fillMesh,
+        wireframeMat: wireframe.material,
+        floatAmp,
+        getNormal,
+        attractToSurface,
+        scale,
+        geoType,
+        roughness: roughness || 0.15,
+        lastHitTime: 0,
+        class_name: class_name || 'ostatni/neznama',
+    };
+}
+
+targets.push(createTarget(new THREE.BoxGeometry(1, 1, 1), 0x4488ff, new THREE.Vector3(6, 1.5, 6), 2.2, 2.8, 3.0, 1.4, 0.25, 'box', 0.05, 'kuchyne/hrnec'));
+targets.push(createTarget(new THREE.IcosahedronGeometry(1, 0), 0xff8844, new THREE.Vector3(-7, 2.5, 5), 1.8, 2.5, 2.8, 1.2, 0.35, 'sphere', 0.25, 'hracky/plysak'));
+targets.push(createTarget(new THREE.TorusKnotGeometry(0.6, 0.25, 64, 8), 0xff4477, new THREE.Vector3(5, 3.5, -7), 2.0, 3.2, 3.2, 1.6, 0.3, 'torus', 0.35, 'elektronika/notebook'));
+targets.push(createTarget(new THREE.DodecahedronGeometry(0.7, 0), 0x44ff88, new THREE.Vector3(-6, 1, -6), 2.0, 2.0, 2.5, 1.0, 0.2, 'sphere', 0.20, 'sport/fotbalovy_mic'));
+targets.push(createTarget(new THREE.OctahedronGeometry(0.8, 0), 0xffdd44, new THREE.Vector3(0, 4, -8), 1.6, 3.0, 2.8, 1.3, 0.4, 'sphere', 0.15, 'kuchyne/sklenice'));
+
+const originalPositions = targets.map(o => o.position.clone());
+
+// ===== RADAR ANTENNA =====
+const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(1, 1.4, 0.2, 28),
+    new THREE.MeshStandardMaterial({ color: 0x1a3355, metalness: 0.8, roughness: 0.3 })
+);
+base.position.y = 0;
+scene.add(base);
+
+const baseRing = new THREE.Mesh(
+    new THREE.TorusGeometry(1.2, 0.03, 8, 40),
+    new THREE.MeshStandardMaterial({ color: 0x00ff88, emissive: 0x00ff88, emissiveIntensity: 0.15 })
+);
+baseRing.position.y = 0.1;
+baseRing.rotation.x = Math.PI / 2;
+scene.add(baseRing);
+
+const platform = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.7, 0.7, 0.1, 20),
+    new THREE.MeshStandardMaterial({ color: 0x224477, metalness: 0.9, roughness: 0.15 })
+);
+platform.position.y = 0.14;
+scene.add(platform);
+
+const antennaGroup = new THREE.Group();
+antennaGroup.position.y = 0.19;
+antennaGroup.rotation.order = 'YXZ';
+scene.add(antennaGroup);
+
+const dish = new THREE.Mesh(
+    new THREE.ConeGeometry(0.55, 0.4, 16),
+    new THREE.MeshStandardMaterial({ color: 0x44aaff, metalness: 0.9, roughness: 0.1, emissive: 0x004488, emissiveIntensity: 0.25 })
+);
+dish.rotation.x = Math.PI / 2;
+dish.position.z = 0.4;
+antennaGroup.add(dish);
+
+const tip = new THREE.Mesh(
+    new THREE.SphereGeometry(0.06, 6, 6),
+    new THREE.MeshBasicMaterial({ color: 0x00ff88 })
+);
+tip.position.set(0, 0, 0.7);
+antennaGroup.add(tip);
+
+const tipGlow = new THREE.Mesh(
+    new THREE.SphereGeometry(0.12, 6, 6),
+    new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.2 })
+);
+tipGlow.position.set(0, 0, 0.7);
+antennaGroup.add(tipGlow);
+
+// ===== SCAN PLANE =====
+const scanGroup = new THREE.Group();
+scene.add(scanGroup);
+
+const scanMesh = new THREE.Mesh(
+    new THREE.RingGeometry(0.6, 14, 48, 1, 0, Math.PI * 0.3),
+    new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.015, side: THREE.DoubleSide, depthWrite: false })
+);
+scanMesh.rotation.x = -Math.PI / 2;
+scanGroup.add(scanMesh);
+
+const scanEdgePts = [];
+for (let i = 0; i <= 48; i++) {
+    const a = (i / 48) * Math.PI * 0.3;
+    scanEdgePts.push(new THREE.Vector3(14 * Math.cos(a), 0, 14 * Math.sin(a)));
+}
+const scanEdge = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(scanEdgePts),
+    new THREE.LineBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.06 })
+);
+scanEdge.rotation.x = -Math.PI / 2;
+scanGroup.add(scanEdge);
+
+// ===== DATA ARRAYS =====
+const beams = [];
+const hitPoints = [];
+const beamPool = [];
+const MAX_BEAMS = 2000;
+const MAX_HITS = 2000;
+const BEAM_LIFE = 10;
+const HIT_LIFE = 20;
+
+const modelPoints = [];
+const modelSegments = [];
+const modelTriangles = [];
+const modelLabels = [];
+const MAX_MODEL = 8000;
+const MAX_SEGMENTS = 8000;
+const MAX_TRIS = 4000;
+const CONNECT_RADIUS = 0.60;
+const CONNECT_INTERVAL = 15;
+const SEGMENT_LIFE = 600;
+
+const modelGroup = new THREE.Group();
+scene.add(modelGroup);
+let modelMesh = null;
+let triMesh = null;
+
+const modelPointGroup = new THREE.Group();
+scene.add(modelPointGroup);
+let modelPointMesh = null;
+let modelPointGeo = null;
+let modelPointMat = null;
+
+const labelGroup = new THREE.Group();
+scene.add(labelGroup);
+
+let azimuth = 0, elevation = 0, elevationDir = 1;
+let frameCount = 0;
+let scanning = true;
+const clock = new THREE.Clock();
+
+// ===== CLUSTERING =====
+function clusterPoints(points, radius) {
+    if (points.length < 3) return [];
+    const clusters = [];
+    const used = new Set();
+    for (let i = 0; i < points.length; i++) {
+        if (used.has(i)) continue;
+        const cluster = {
+            points: [points[i]],
+            centroid: points[i].position.clone(),
+            color: points[i].color
+        };
+        used.add(i);
+        let changed = true;
+        while (changed) {
+            changed = false;
+            for (let j = 0; j < points.length; j++) {
+                if (used.has(j)) continue;
+                for (const cp of cluster.points) {
+                    if (cp.position.distanceTo(points[j].position) < radius) {
+                        cluster.points.push(points[j]);
+                        used.add(j);
+                        cluster.centroid.add(points[j].position);
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+        cluster.centroid.divideScalar(cluster.points.length);
+        cluster.maxDist = 0;
+        const nameVotes = {};
+        for (const p of cluster.points) {
+            cluster.maxDist = Math.max(cluster.maxDist, p.position.distanceTo(cluster.centroid));
+            const n = p.class_name || 'ostatni/neznama';
+            nameVotes[n] = (nameVotes[n] || 0) + 1;
+        }
+        cluster.class_name = Object.entries(nameVotes).sort((a, b) => b[1] - a[1])[0][0];
+        if (cluster.points.length >= 5) clusters.push(cluster);
+    }
+    clusters.sort((a, b) => b.points.length - a.points.length);
+    return clusters.slice(0, 6);
+}
+
+// ===== LABELS =====
+function updateLabels(clusters) {
+    for (const l of modelLabels) labelGroup.remove(l);
+    modelLabels.length = 0;
+
+    const listEl = document.getElementById('objList');
+    listEl.innerHTML = '';
+    document.getElementById('objCount').textContent = clusters.length + ' objektu';
+
+    for (let ci = 0; ci < clusters.length; ci++) {
+        const c = clusters[ci];
+        const dist = c.centroid.length().toFixed(1);
+        const cn = c.class_name || 'ostatni/neznama';
+        const p = parseClass(cn);
+        const hex = '#' + getCatColor(p.cat).getHexString();
+
+        const div = document.createElement('div');
+        div.style.cssText = `color:${hex};font-size:9px;font-family:'Courier New',monospace;background:rgba(7,7,20,0.7);padding:2px 5px;border-radius:2px;border:1px solid ${hex};border-left:2px solid ${hex};pointer-events:none;white-space:nowrap`;
+        div.textContent = `${p.obj} ${dist}m`;
+
+        const label = new CSS2DObject(div);
+        label.position.copy(c.centroid);
+        label.position.y += c.maxDist + 0.4;
+        labelGroup.add(label);
+        modelLabels.push(label);
+
+        const entry = document.createElement('div');
+        entry.className = 'obj-e';
+        entry.innerHTML = `<span class="obj-dot" style="background:${hex}"></span><span class="obj-n">${p.obj}</span><span class="obj-d">${dist}m</span>`;
+        listEl.appendChild(entry);
+    }
+}
+
+// ===== DENSITY-ADAPTIVE MESH =====
+function rebuildMesh() {
+    if (modelPoints.length < 4) return;
+    if (modelMesh) {
+        modelGroup.remove(modelMesh);
+        modelMesh.geometry.dispose();
+        modelMesh.material.dispose();
+        modelMesh = null;
+    }
+
+    const filtered = modelPoints;
+    if (filtered.length < 4) return;
+
+    const cellSize = CONNECT_RADIUS * 2;
+    const grid = {};
+    for (const mp of filtered) {
+        const key = `${Math.floor(mp.position.x / cellSize)},${Math.floor(mp.position.y / cellSize)},${Math.floor(mp.position.z / cellSize)}`;
+        if (!grid[key]) grid[key] = [];
+        grid[key].push(mp);
+    }
+
+    const recentPoints = filtered.slice(-500);
+    const seen = new Set();
+    const triSeen = new Set();
+
+    for (let pi = 0; pi < recentPoints.length; pi++) {
+        const p1 = recentPoints[pi].position;
+        const cx = Math.floor(p1.x / cellSize);
+        const cy = Math.floor(p1.y / cellSize);
+        const cz = Math.floor(p1.z / cellSize);
+        const nearby = [];
+
+        for (let dx = -1; dx <= 1; dx++)
+            for (let dy = -1; dy <= 1; dy++)
+                for (let dz = -1; dz <= 1; dz++) {
+                    const cell = grid[`${cx + dx},${cy + dy},${cz + dz}`];
+                    if (cell) for (const mp of cell)
+                        if (mp.position !== p1) nearby.push(mp);
+                }
+
+        const avgDist = nearby.length > 0
+            ? nearby.reduce((s, mp) => s + p1.distanceTo(mp.position), 0) / nearby.length
+            : CONNECT_RADIUS;
+
+        const adaptRadius = Math.max(0.15, Math.min(CONNECT_RADIUS * 1.5, avgDist * 2.5));
+
+        const sorted = nearby
+            .map(mp => ({ mp, dist: p1.distanceTo(mp.position) }))
+            .filter(d => d.dist < adaptRadius && d.dist > 0.04)
+            .sort((a, b) => a.dist - b.dist);
+
+        for (let ni = 0; ni < Math.min(sorted.length, 6); ni++) {
+            const p2 = sorted[ni].mp.position;
+            const a = p1.x.toFixed(2) + ',' + p1.y.toFixed(2) + ',' + p1.z.toFixed(2);
+            const b = p2.x.toFixed(2) + ',' + p2.y.toFixed(2) + ',' + p2.z.toFixed(2);
+            const key = a < b ? a + '-' + b : b + '-' + a;
+            if (!seen.has(key) && modelSegments.length < MAX_SEGMENTS) {
+                seen.add(key);
+                modelSegments.push({ p1: p1.clone(), p2: p2.clone(), age: 0 });
+            }
+        }
+
+        if (sorted.length >= 2) {
+            for (let t1 = 0; t1 < Math.min(sorted.length, 4); t1++)
+                for (let t2 = t1 + 1; t2 < Math.min(sorted.length, 4); t2++) {
+                    const pA = sorted[t1].mp.position;
+                    const pB = sorted[t2].mp.position;
+                    const a = pA.x.toFixed(2) + ',' + pA.y.toFixed(2) + ',' + pA.z.toFixed(2);
+                    const b = pB.x.toFixed(2) + ',' + pB.y.toFixed(2) + ',' + pB.z.toFixed(2);
+                    const key = a < b ? a + '-' + b : b + '-' + a;
+                    if (!seen.has(key) && modelSegments.length < MAX_SEGMENTS) {
+                        seen.add(key);
+                        modelSegments.push({ p1: pA.clone(), p2: pB.clone(), age: 0 });
+                    }
+                    const tk = p1.x.toFixed(2) + '|' + p1.y.toFixed(2) + '|' + p1.z.toFixed(2) + '|'
+                             + pA.x.toFixed(2) + '|' + pA.y.toFixed(2) + '|' + pA.z.toFixed(2) + '|'
+                             + pB.x.toFixed(2) + '|' + pB.y.toFixed(2) + '|' + pB.z.toFixed(2);
+                    if (!triSeen.has(tk) && modelTriangles.length < MAX_TRIS) {
+                        triSeen.add(tk);
+                        modelTriangles.push({ p1: p1.clone(), p2: pA.clone(), p3: pB.clone(), age: 0 });
+                    }
+                }
+        }
+    }
+
+    for (let i = modelSegments.length - 1; i >= 0; i--) {
+        modelSegments[i].age++;
+        if (modelSegments[i].age > SEGMENT_LIFE) modelSegments.splice(i, 1);
+    }
+    for (let i = modelTriangles.length - 1; i >= 0; i--) {
+        modelTriangles[i].age++;
+        if (modelTriangles[i].age > SEGMENT_LIFE) modelTriangles.splice(i, 1);
+    }
+
+    const active = modelSegments.filter(s => s.age < SEGMENT_LIFE);
+    const activeTris = modelTriangles.filter(t => t.age < SEGMENT_LIFE);
+    if (active.length === 0 && activeTris.length === 0) {
+        if (triMesh) { modelGroup.remove(triMesh); triMesh.geometry.dispose(); triMesh.material.dispose(); triMesh = null; }
+        return;
+    }
+
+    const positions = new Float32Array(active.length * 6);
+    const colors = new Float32Array(active.length * 6);
+    for (let i = 0; i < active.length; i++) {
+        const s = active[i];
+        const a = s.age / SEGMENT_LIFE;
+        const f = 1 - a;
+        positions[i * 6] = s.p1.x;
+        positions[i * 6 + 1] = s.p1.y;
+        positions[i * 6 + 2] = s.p1.z;
+        positions[i * 6 + 3] = s.p2.x;
+        positions[i * 6 + 4] = s.p2.y;
+        positions[i * 6 + 5] = s.p2.z;
+        const c = new THREE.Color().setHSL(0.6 - s.p1.y * 0.04, 0.7 + f * 0.2, 0.25 + f * 0.4);
+        colors[i * 6] = c.r;
+        colors[i * 6 + 1] = c.g;
+        colors[i * 6 + 2] = c.b;
+        colors[i * 6 + 3] = c.r;
+        colors[i * 6 + 4] = c.g;
+        colors[i * 6 + 5] = c.b;
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    const mat = new THREE.LineBasicMaterial({
+        vertexColors: true, transparent: true, opacity: 0.9,
+        blending: THREE.AdditiveBlending, depthWrite: false
+    });
+    modelMesh = new THREE.LineSegments(geo, mat);
+    modelGroup.add(modelMesh);
+
+    // Triangle face mesh (from connected points)
+    if (triMesh) {
+        modelGroup.remove(triMesh);
+        triMesh.geometry.dispose();
+        triMesh.material.dispose();
+        triMesh = null;
+    }
+    if (activeTris.length > 0) {
+        const tpos = new Float32Array(activeTris.length * 9);
+        const tcol = new Float32Array(activeTris.length * 9);
+        for (let i = 0; i < activeTris.length; i++) {
+            const t = activeTris[i];
+            const f = 1 - t.age / SEGMENT_LIFE;
+            const c = new THREE.Color().setHSL(0.6 - t.p1.y * 0.04, 0.5 + f * 0.3, 0.15 + f * 0.2);
+            for (let j = 0; j < 3; j++) {
+                const p = j === 0 ? t.p1 : j === 1 ? t.p2 : t.p3;
+                tpos[i * 9 + j * 3] = p.x;
+                tpos[i * 9 + j * 3 + 1] = p.y;
+                tpos[i * 9 + j * 3 + 2] = p.z;
+                tcol[i * 9 + j * 3] = c.r;
+                tcol[i * 9 + j * 3 + 1] = c.g;
+                tcol[i * 9 + j * 3 + 2] = c.b;
+            }
+        }
+        const tgeo = new THREE.BufferGeometry();
+        tgeo.setAttribute('position', new THREE.BufferAttribute(tpos, 3));
+        tgeo.setAttribute('color', new THREE.BufferAttribute(tcol, 3));
+        const tmat = new THREE.MeshBasicMaterial({
+            vertexColors: true, transparent: true, opacity: 0.08,
+            side: THREE.DoubleSide, depthWrite: false,
+        });
+        triMesh = new THREE.Mesh(tgeo, tmat);
+        modelGroup.add(triMesh);
+    }
+}
+
+function updateModelPoints() {
+    const active = modelPoints.slice(-Math.min(modelPoints.length, 2000));
+    if (active.length === 0) {
+        if (modelPointMesh) modelPointMesh.visible = false;
+        return;
+    }
+
+    const n = active.length;
+    if (modelPointMesh && modelPointGeo && modelPointGeo.getAttribute('position').count === n) {
+        const pos = modelPointGeo.getAttribute('position').array;
+        const col = modelPointGeo.getAttribute('color').array;
+        for (let i = 0; i < n; i++) {
+            pos[i * 3] = active[i].position.x;
+            pos[i * 3 + 1] = active[i].position.y;
+            pos[i * 3 + 2] = active[i].position.z;
+            const y = active[i].position.y;
+            const h = 0.6 - y * 0.06;
+            const r = 1 + Math.sin(h * 6.283) * 0.2;
+            col[i * 3] = r * 0.7; col[i * 3 + 1] = 0.3; col[i * 3 + 2] = 0.4;
+        }
+        modelPointGeo.getAttribute('position').needsUpdate = true;
+        modelPointGeo.getAttribute('color').needsUpdate = true;
+        modelPointMesh.visible = true;
+        return;
+    }
+
+    if (modelPointMesh) { modelPointGroup.remove(modelPointMesh); modelPointGeo.dispose(); modelPointMat.dispose(); }
+    const pos = new Float32Array(n * 3);
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+        pos[i * 3] = active[i].position.x;
+        pos[i * 3 + 1] = active[i].position.y;
+        pos[i * 3 + 2] = active[i].position.z;
+        const y = active[i].position.y;
+        const h = 0.6 - y * 0.06;
+        const r = 1 + Math.sin(h * 6.283) * 0.2;
+        col[i * 3] = r * 0.7; col[i * 3 + 1] = 0.3; col[i * 3 + 2] = 0.4;
+    }
+    modelPointGeo = new THREE.BufferGeometry();
+    modelPointGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    modelPointGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    modelPointMat = new THREE.PointsMaterial({
+        size: 0.09, vertexColors: true, transparent: true, opacity: 0.7,
+        blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
+    });
+    modelPointMesh = new THREE.Points(modelPointGeo, modelPointMat);
+    modelPointGroup.add(modelPointMesh);
+}
+
+// ===== BEAM TRACING =====
+function traceBeam(origin, direction, maxBounces) {
+    if (maxBounces === undefined) maxBounces = 2;
+    const points = [];
+    const hits = [];
+    let pos = origin.clone();
+    let dir = direction.clone().normalize();
+    let stepSize = 0.15;
+    let maxSteps = 80;
+
+    const vGrad = new THREE.Vector3();
+    const vPerp = new THREE.Vector3();
+    const vEnv = new THREE.Color(0.35, 0.4, 0.55);
+
+    points.push(pos.clone());
+
+    for (let bounce = 0; bounce <= maxBounces; bounce++) {
+        let didHit = false;
+
+        for (let step = 0; step < maxSteps; step++) {
+            vGrad.set(0, 0, 0);
+            let nearestObj = null;
+            let nearestDist = 999;
+
+            for (let oi = 0; oi < targets.length; oi++) {
+                const obj = targets[oi];
+                const attract = obj.attractToSurface(pos);
+                if (attract && attract.distance < obj.refractionRange) {
+                    const t = 1 - (attract.distance / obj.refractionRange);
+                    const inf = t * t * obj.refractionStrength;
+                    vGrad.x += attract.direction.x * inf;
+                    vGrad.y += attract.direction.y * inf;
+                    vGrad.z += attract.direction.z * inf;
+                    if (attract.distance < nearestDist) { nearestDist = attract.distance; nearestObj = obj; }
+                }
+            }
+
+            if (vGrad.length() > 0.001) {
+                const dot = dir.x * vGrad.x + dir.y * vGrad.y + dir.z * vGrad.z;
+                vPerp.set(vGrad.x - dir.x * dot, vGrad.y - dir.y * dot, vGrad.z - dir.z * dot);
+                dir.x += vPerp.x * 0.12;
+                dir.y += vPerp.y * 0.12;
+                dir.z += vPerp.z * 0.12;
+            }
+
+            const dLen = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+            if (dLen < 0.001 || !isFinite(dLen)) { dir.set(0, 0, 1); break; }
+            dir.x /= dLen; dir.y /= dLen; dir.z /= dLen;
+
+            pos.x += dir.x * stepSize;
+            pos.y += dir.y * stepSize;
+            pos.z += dir.z * stepSize;
+            points.push(pos.clone());
+
+            if (!isFinite(pos.x)) { points.pop(); break; }
+            if (pos.x * pos.x + pos.y * pos.y + pos.z * pos.z > maxRange2) break;
+
+            // Model points: only on material surface or during strong refraction (non-material)
+            let isActive = false;
+            if (nearestObj && nearestDist < nearestObj.hitRadius * 0.5) {
+                isActive = true;
+                if ((step & 1) === 0) {
+                    modelPoints.push({ position: pos.clone(), color: nearestObj.color.clone(), class_name: nearestObj.class_name });
+                }
+            } else if (vGrad.length() > 0.02 && nearestDist < 4) {
+                isActive = true;
+                if ((step & 1) === 0) {
+                    modelPoints.push({ position: pos.clone(), color: vEnv });
+                }
+            }
+
+            // Surface hit detection - triggers when beam reaches object surface
+            if (nearestObj && nearestDist < Math.max(stepSize * 3, 0.25)) {
+                const hitPos = pos.clone();
+                nearestObj.lastHitTime = Date.now();
+                for (let d = 0; d < 5; d++) {
+                    const jitter = new THREE.Vector3(
+                        (Math.random() - 0.5) * 0.04,
+                        (Math.random() - 0.5) * 0.04,
+                        (Math.random() - 0.5) * 0.04
+                    );
+                    points.push(hitPos.clone().add(jitter));
+                }
+                hits.push({ position: hitPos, object: nearestObj, bounce: bounce, power: Math.pow(0.75, bounce), class_name: nearestObj.class_name });
+                modelPoints.push({ position: hitPos, color: nearestObj.color.clone(), class_name: nearestObj.class_name });
+
+                if (bounce < maxBounces) {
+                    const normal = nearestObj.getNormal(hitPos);
+                    const sDirX = dir.x - 2 * (dir.x * normal.x + dir.y * normal.y + dir.z * normal.z) * normal.x;
+                    const sDirY = dir.y - 2 * (dir.x * normal.x + dir.y * normal.y + dir.z * normal.z) * normal.y;
+                    const sDirZ = dir.z - 2 * (dir.x * normal.x + dir.y * normal.y + dir.z * normal.z) * normal.z;
+                    const sLen = Math.sqrt(sDirX * sDirX + sDirY * sDirY + sDirZ * sDirZ);
+                    const roughness = nearestObj.roughness || 0.15;
+                    if (roughness > 0.01 && sLen > 0.01) {
+                        const rx = (Math.random() - 0.5) * roughness * 2;
+                        const ry = (Math.random() - 0.5) * roughness * 2;
+                        const rz = (Math.random() - 0.5) * roughness * 2;
+                        const dDot = normal.x * rx + normal.y * ry + normal.z * rz;
+                        const dx = rx - normal.x * dDot, dy = ry - normal.y * dDot, dz = rz - normal.z * dDot;
+                        const dr = (1 - roughness * 0.3);
+                        dir.set(sDirX / sLen * dr + dx * roughness * 0.3, sDirY / sLen * dr + dy * roughness * 0.3, sDirZ / sLen * dr + dz * roughness * 0.3);
+                        const rLen = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+                        if (rLen > 0.01) { dir.x /= rLen; dir.y /= rLen; dir.z /= rLen; }
+                        else dir.set(sDirX / sLen, sDirY / sLen, sDirZ / sLen);
+                    } else if (sLen > 0.01) { dir.set(sDirX / sLen, sDirY / sLen, sDirZ / sLen); }
+                    pos.x += dir.x * stepSize * 3;
+                    pos.y += dir.y * stepSize * 3;
+                    pos.z += dir.z * stepSize * 3;
+                    points.push(pos.clone());
+                    maxSteps = Math.max(15, maxSteps - 5);
+                }
+                didHit = true;
+                break;
+            }
+        }
+        if (!didHit) break;
+    }
+    return { points, hits };
+}
+
+// ===== BEAM EMISSION =====
+function emitBeams() {
+    const emitterPos = new THREE.Vector3(0, 0.19, 0);
+    const localTip = new THREE.Vector3(0, 0, 0.7);
+    localTip.applyQuaternion(antennaGroup.quaternion);
+    emitterPos.add(localTip);
+
+    const forward = new THREE.Vector3(0, 0, 1);
+    forward.applyQuaternion(antennaGroup.quaternion);
+
+    const worldUp = new THREE.Vector3(0, 1, 0);
+    const right = new THREE.Vector3().crossVectors(forward, worldUp);
+    if (right.length() < 0.001) right.set(1, 0, 0);
+    right.normalize();
+    const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+
+    // === SCANNING BEAMS (100% prostoru) ===
+    const numFan = 5;
+    const fanSpread = 0.26;
+    const numSide = 5;
+    const sideSpread = 0.26;
+
+    for (let j = 0; j < numFan; j++) {
+        const elAngle = (j - (numFan - 1) / 2) * fanSpread;
+        const baseDir = forward.clone().applyAxisAngle(right, elAngle);
+        for (let k = 0; k < numSide; k++) {
+            const azAngle = (k - (numSide - 1) / 2) * sideSpread;
+            const direction = baseDir.clone().applyAxisAngle(up, azAngle);
+            const result = traceBeam(emitterPos, direction);
+            if (result.points.length > 1) beams.push({ points: result.points, age: 0 });
+            if (sdrSimulate) {
+                for (const hit of result.hits) {
+                    hitPoints.push({ position: hit.position, age: 0, color: hit.object.color.clone(), power: hit.power, bounce: hit.bounce });
+                }
+            }
+        }
+    }
+
+    if (modelPoints.length > MAX_MODEL) {
+        modelPoints.splice(0, modelPoints.length - MAX_MODEL);
+    }
+}
+
+// ===== BEAM VISUALIZATION =====
+function updateBeamVisuals() {
+    for (const line of beamPool) line.visible = false;
+
+    const active = [];
+    for (let i = beams.length - 1; i >= 0; i--) {
+        if (beams[i].age < BEAM_LIFE) active.push(beams[i]);
+    }
+
+    for (let i = 0; i < active.length; i++) {
+        const beam = active[i];
+        const age = beam.age / BEAM_LIFE;
+        let opacity = age < 0.3 ? 1 : 1 - ((age - 0.3) / 0.7);
+        opacity *= 0.85;
+        if (opacity < 0.02) continue;
+
+        let line;
+        if (i < beamPool.length) {
+            line = beamPool[i];
+        } else {
+            line = new THREE.Line(
+                new THREE.BufferGeometry(),
+                new THREE.LineBasicMaterial({
+                    transparent: true,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false
+                })
+            );
+            scene.add(line);
+            beamPool.push(line);
+        }
+
+        const pts = beam.points;
+        const n = pts.length;
+        let posAttr = line.geometry.getAttribute('position');
+        if (!posAttr || posAttr.count !== n) {
+            line.geometry.dispose();
+            line.geometry = new THREE.BufferGeometry();
+            const arr = new Float32Array(n * 3);
+            for (let j = 0; j < n; j++) {
+                arr[j * 3] = pts[j].x; arr[j * 3 + 1] = pts[j].y; arr[j * 3 + 2] = pts[j].z;
+            }
+            line.geometry.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+        } else {
+            const arr = posAttr.array;
+            for (let j = 0; j < n; j++) {
+                arr[j * 3] = pts[j].x; arr[j * 3 + 1] = pts[j].y; arr[j * 3 + 2] = pts[j].z;
+            }
+            posAttr.needsUpdate = true;
+        }
+        line.material.opacity = opacity;
+        // Beam color by height for depth perception
+        const avgY = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+        const hue = 0.55 - avgY * 0.05;
+        line.material.color.setHSL(hue, 0.9, 0.5 + (1 - age) * 0.3);
+        line.visible = true;
+    }
+
+    for (let i = active.length; i < beamPool.length; i++) {
+        beamPool[i].visible = false;
+    }
+}
+
+// ===== HIT POINTS VISUALIZATION =====
+const hitGroup = new THREE.Group();
+scene.add(hitGroup);
+let hitPointMesh = null;
+let hitPointGeo = null;
+let hitPointMat = null;
+
+function updateHitVisuals() {
+    const active = [];
+    for (let i = hitPoints.length - 1; i >= 0; i--) {
+        if (hitPoints[i].age < HIT_LIFE) active.push(hitPoints[i]);
+    }
+    if (active.length === 0) {
+        if (hitPointMesh) { hitPointMesh.visible = false; }
+        return;
+    }
+
+    const n = active.length;
+    if (hitPointMesh && hitPointGeo && hitPointGeo.getAttribute('position').count === n) {
+        const pos = hitPointGeo.getAttribute('position').array;
+        const col = hitPointGeo.getAttribute('color').array;
+        for (let i = 0; i < n; i++) {
+            const h = active[i];
+            const age = h.age / HIT_LIFE;
+            const fade = age < 0.4 ? 1 : 1 - ((age - 0.4) / 0.6);
+            const p = parseClass(h.class_name || 'ostatni/neznama');
+            const baseColor = getCatColor(p.cat);
+            pos[i * 3] = h.position.x; pos[i * 3 + 1] = h.position.y; pos[i * 3 + 2] = h.position.z;
+            col[i * 3] = baseColor.r * fade; col[i * 3 + 1] = baseColor.g * fade; col[i * 3 + 2] = baseColor.b * fade;
+        }
+        hitPointGeo.getAttribute('position').needsUpdate = true;
+        hitPointGeo.getAttribute('color').needsUpdate = true;
+        hitPointMesh.visible = true;
+        return;
+    }
+
+    if (hitPointMesh) { hitGroup.remove(hitPointMesh); hitPointGeo.dispose(); hitPointMat.dispose(); }
+    const positions = new Float32Array(n * 3);
+    const colors = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+        const h = active[i];
+        const age = h.age / HIT_LIFE;
+        const fade = age < 0.4 ? 1 : 1 - ((age - 0.4) / 0.6);
+        const p = parseClass(h.class_name || 'ostatni/neznama');
+        const baseColor = getCatColor(p.cat);
+        positions[i * 3] = h.position.x; positions[i * 3 + 1] = h.position.y; positions[i * 3 + 2] = h.position.z;
+        colors[i * 3] = baseColor.r * fade; colors[i * 3 + 1] = baseColor.g * fade; colors[i * 3 + 2] = baseColor.b * fade;
+    }
+    hitPointGeo = new THREE.BufferGeometry();
+    hitPointGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    hitPointGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    hitPointMat = new THREE.PointsMaterial({
+        size: 0.15, vertexColors: true, transparent: true, opacity: 0.9,
+        blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
+    });
+    hitPointMesh = new THREE.Points(hitPointGeo, hitPointMat);
+    hitGroup.add(hitPointMesh);
+}
+
+// ===== PPI DISPLAYS =====
+function drawPPIHorizontal(ctx, w, h) {
+    ctx.fillStyle = 'rgba(7,7,20,0.2)';
+    ctx.fillRect(0, 0, w, h);
+
+    const cx = w / 2, cy = h / 2, r = Math.min(cx, cy) - 6;
+
+    ctx.strokeStyle = 'rgba(0,255,136,0.07)';
+    ctx.lineWidth = 0.5;
+    for (let ri = 1; ri <= 3; ri++) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * ri / 3, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
+    ctx.strokeStyle = 'rgba(0,255,136,0.04)';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx, cy + r); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r, cy); ctx.stroke();
+
+    const active = hitPoints.filter(h => h.age < HIT_LIFE);
+    for (const hp of active) {
+        const x = hp.position.x, z = hp.position.z;
+        const dist = Math.sqrt(x * x + z * z);
+        if (dist < 0.1) continue;
+        const angle = Math.atan2(x, z);
+        const normDist = Math.min(dist / 14, 1);
+        const px = cx + Math.sin(angle) * normDist * r;
+        const py = cy - Math.cos(angle) * normDist * r;
+        const age = hp.age / HIT_LIFE;
+        const p_c = parseClass(hp.class_name || 'ostatni/neznama');
+        const tc_c = getCatColor(p_c.cat);
+        ctx.fillStyle = `rgba(${tc_c.r * 255 | 0},${tc_c.g * 255 | 0},${tc_c.b * 255 | 0},${(1 - age) * 0.5})`;
+        ctx.beginPath();
+        ctx.arc(px, py, Math.max(1, (1 - age) * 2), 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    ctx.strokeStyle = 'rgba(0,255,136,0.12)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.sin(azimuth) * r, cy - Math.cos(azimuth) * r);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(0,255,136,0.15)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function drawPPIVertical(ctx, w, h) {
+    ctx.fillStyle = 'rgba(7,7,20,0.2)';
+    ctx.fillRect(0, 0, w, h);
+
+    const margin = 8, ww = w - 2 * margin, hh = h - 2 * margin;
+
+    ctx.strokeStyle = 'rgba(0,255,136,0.07)';
+    ctx.lineWidth = 0.5;
+    for (let ri = 1; ri <= 3; ri++) {
+        ctx.beginPath();
+        ctx.moveTo(margin, h - margin - hh * ri / 3);
+        ctx.lineTo(w - margin, h - margin - hh * ri / 3);
+        ctx.stroke();
+    }
+
+    ctx.strokeStyle = 'rgba(0,255,136,0.04)';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(margin + ww / 2, margin);
+    ctx.lineTo(margin + ww / 2, h - margin);
+    ctx.stroke();
+
+    const active = hitPoints.filter(h => h.age < HIT_LIFE);
+    for (const hp of active) {
+        const hr = Math.sqrt(hp.position.x * hp.position.x + hp.position.z * hp.position.z);
+        const y = hp.position.y;
+        if (hr < 0.1) continue;
+        const nx = Math.min(hr / 14, 1);
+        const ny = (y + 5) / 12;
+        if (ny < 0 || ny > 1) continue;
+        const px = margin + nx * ww;
+        const py = (h - margin) - ny * hh;
+        const age = hp.age / HIT_LIFE;
+        const p_v = parseClass(hp.class_name || 'ostatni/neznama');
+        const tc_v = getCatColor(p_v.cat);
+        ctx.fillStyle = `rgba(${tc_v.r * 255 | 0},${tc_v.g * 255 | 0},${tc_v.b * 255 | 0},${(1 - age) * 0.5})`;
+        ctx.beginPath();
+        ctx.arc(px, py, Math.max(1, (1 - age) * 2), 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    const maxRange = 14;
+    const endX = margin + maxRange * ww / 14;
+    const endY = (h - margin) - (Math.tan(elevation) * maxRange + 5) / 12 * hh;
+    ctx.strokeStyle = 'rgba(0,255,136,0.08)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(margin, h - margin);
+    ctx.lineTo(endX, Math.max(margin, Math.min(h - margin, endY)));
+    ctx.stroke();
+}
+
+// ===== PPI CANVAS SETUP =====
+const ppiHCanvas = document.getElementById('ppiHCanvas');
+const ppiHCtx = ppiHCanvas.getContext('2d');
+ppiHCanvas.width = 160;
+ppiHCanvas.height = 160;
+
+const ppiVCanvas = document.getElementById('ppiVCanvas');
+const ppiVCtx = ppiVCanvas.getContext('2d');
+ppiVCanvas.width = 140;
+ppiVCanvas.height = 160;
+
+// ===== SCAN START/STOP =====
+document.getElementById('scanBtn').addEventListener('click', () => {
+    scanning = !scanning;
+    const btn = document.getElementById('scanBtn');
+    if (scanning) {
+        btn.textContent = '■ STOP';
+        btn.classList.remove('stopped');
+    } else {
+        btn.textContent = '▶ START';
+        btn.classList.add('stopped');
+    }
+});
+
+// ===== ANIMATION LOOP =====
+function animate() {
+    requestAnimationFrame(animate);
+    frameCount++;
+
+    const delta = clock.getDelta();
+    const time = clock.getElapsedTime();
+
+    if (scanning) {
+        azimuth += delta * 0.3;
+        if (azimuth > Math.PI * 2) azimuth -= Math.PI * 2;
+
+        elevation += delta * 0.1 * elevationDir;
+        if (elevation > 0.8) elevationDir = -1;
+        if (elevation < -0.25) elevationDir = 1;
+    }
+
+    antennaGroup.rotation.y = azimuth;
+    antennaGroup.rotation.x = -elevation;
+    scanGroup.rotation.y = azimuth;
+
+    if (scanning) {
+        const useSimulation = !sdrConnected || sdrSimulate
+            || (sdrConnected && !sdrSimulate && Date.now() - sdrLastDetect > 4000);
+
+        emitBeams();
+        if (!useSimulation) {
+            sdrClient.sendScan(azimuth, elevation);
+            for (const det of sdrClient.getDetections()) {
+                const cn = det.class_name || 'ostatni/neznama';
+                const p = parseClass(cn);
+                hitPoints.push({
+                    position: det.position,
+                    age: 0,
+                    color: getCatColor(p.cat),
+                    power: det.power || 1,
+                    bounce: 0,
+                    class_name: cn,
+                    confidence: det.confidence || 0,
+                });
+            }
+        }
+    }
+
+    // Age and cleanup
+    for (const beam of beams) beam.age++;
+    for (const hit of hitPoints) hit.age++;
+
+    while (beams.length > 0 && beams[0].age > BEAM_LIFE) beams.shift();
+    if (beams.length > MAX_BEAMS) beams.splice(0, beams.length - MAX_BEAMS);
+
+    while (hitPoints.length > 0 && hitPoints[0].age > HIT_LIFE) hitPoints.shift();
+    if (hitPoints.length > MAX_HITS) hitPoints.splice(0, hitPoints.length - MAX_HITS);
+
+    // Update visuals
+    updateBeamVisuals();
+    updateHitVisuals();
+
+    // Rebuild mesh (adaptive interval - slower when more points)
+    const meshInterval = modelPoints.length > 8000 ? CONNECT_INTERVAL * 2 : CONNECT_INTERVAL;
+    if (frameCount % meshInterval === 0 && modelPoints.length > 0) {
+        rebuildMesh();
+        updateModelPoints();
+        const clusters = clusterPoints(modelPoints, 1.8);
+        updateLabels(clusters);
+    }
+
+    // Animate targets (update currentPos for correct normals)
+    for (let i = 0; i < targets.length; i++) {
+        const obj = targets[i];
+        const orig = originalPositions[i];
+        const floatY = orig.y + Math.sin(time * 0.3 + i * 1.7) * obj.floatAmp;
+
+        obj.wireframe.position.y = floatY;
+        obj.wireframe.rotation.x = Math.sin(time * 0.12 + i * 2.3) * 0.05;
+        obj.wireframe.rotation.y += delta * 0.1;
+        obj.wireframe.rotation.z = Math.cos(time * 0.1 + i * 1.1) * 0.03;
+
+        obj.fillMesh.position.copy(obj.wireframe.position);
+        obj.fillMesh.rotation.copy(obj.wireframe.rotation);
+        obj.fillMesh.scale.copy(obj.wireframe.scale);
+
+        obj.currentPos.set(
+            obj.wireframe.position.x,
+            obj.wireframe.position.y,
+            obj.wireframe.position.z
+        );
+
+        const hitAge = (Date.now() - obj.lastHitTime) / 1000;
+        const baseOp = 0.12;
+        if (hitAge < 0.8) {
+            const glow = 1 - hitAge / 0.8;
+            obj.wireframeMat.opacity = baseOp + glow * 0.55;
+            obj.fillMesh.material.opacity = 0.06 + glow * 0.15;
+            const glC = getCatColor(parseClass(obj.class_name || 'ostatni/neznama').cat);
+            obj.wireframeMat.color.copy(glC).multiplyScalar(0.5 + glow * 0.5);
+        } else {
+            obj.wireframeMat.opacity = baseOp;
+            obj.fillMesh.material.opacity = 0.06;
+            obj.wireframeMat.color.set(obj.color);
+        }
+    }
+
+    // Antenna glow pulse
+    tipGlow.material.opacity = 0.15 + Math.sin(time * 4) * 0.12;
+
+    // Update HUD
+    document.getElementById('azVal').textContent =
+        ((azimuth / Math.PI * 180) % 360).toFixed(0).padStart(3, '0');
+    document.getElementById('elVal').textContent =
+        (elevation / Math.PI * 180).toFixed(1);
+    document.getElementById('detectVal').textContent =
+        hitPoints.filter(h => h.age < HIT_LIFE).length;
+    document.getElementById('modelVal').textContent =
+        modelPoints.length;
+
+    const nfVal = document.getElementById('nfVal');
+    if (sdrConnected && !sdrSimulate && nfVal.textContent === '—') {
+        nfVal.textContent = '?.?';
+    }
+
+    // Draw PPI scopes (kazdy 2. frame)
+    if (frameCount % 2 === 0) {
+        drawPPIHorizontal(ppiHCtx, 160, 160);
+        drawPPIVertical(ppiVCtx, 140, 160);
+    }
+
+    // Render
+    controls.update();
+    composer.render();
+    labelRenderer.render(scene, camera);
+}
+
+// ===== WINDOW RESIZE =====
+window.addEventListener('resize', () => {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    composer.setSize(w, h);
+    labelRenderer.setSize(w, h);
+});
+
+// ===== START =====
+animate();
+</script>
+</body>
+</html>
