@@ -437,11 +437,11 @@ const modelPoints = [];
 const modelSegments = [];
 const modelTriangles = [];
 const modelLabels = [];
-const MAX_MODEL = 8000;
-const MAX_SEGMENTS = 8000;
-const MAX_TRIS = 4000;
+const MAX_MODEL = 20000;
+const MAX_SEGMENTS = 20000;
+const MAX_TRIS = 10000;
 const CONNECT_RADIUS = 0.10;
-const CONNECT_INTERVAL = 15;
+const CONNECT_INTERVAL = 10;
 const SEGMENT_LIFE = 600;
 
 const modelGroup = new THREE.Group();
@@ -561,7 +561,7 @@ function rebuildMesh() {
         grid[key].push(mp);
     }
 
-    const recentPoints = filtered.slice(-500);
+    const recentPoints = filtered.slice(-1000);
     const seen = new Set();
     const triSeen = new Set();
 
@@ -765,8 +765,8 @@ function traceBeam(origin, direction, maxBounces) {
     const hits = [];
     let pos = origin.clone();
     let dir = direction.clone().normalize();
-    let stepSize = 0.20;
-    let maxSteps = 25;
+    let stepSize = 0.12;
+    let maxSteps = 40;
 
     const vGrad = new THREE.Vector3();
     const vPerp = new THREE.Vector3();
@@ -834,14 +834,10 @@ function traceBeam(origin, direction, maxBounces) {
             let isActive = false;
             if (nearestObj && nearestDist < nearestObj.hitRadius * 0.5) {
                 isActive = true;
-                if ((step & 1) === 0) {
-                    modelPoints.push({ position: pos.clone(), color: nearestObj.color.clone(), class_name: nearestObj.class_name });
-                }
+                modelPoints.push({ position: pos.clone(), color: nearestObj.color.clone(), class_name: nearestObj.class_name });
             } else if (vGrad.length() > 0.02 && nearestDist < 4) {
                 isActive = true;
-                if ((step & 1) === 0) {
-                    modelPoints.push({ position: pos.clone(), color: vEnv });
-                }
+                modelPoints.push({ position: pos.clone(), color: vEnv });
             }
 
             // Surface hit detection - triggers when beam reaches object surface
